@@ -54,3 +54,16 @@
         build:
           path: '{{ basedir }}/validator-frontend'
 
+    - name: Start backend container
+      docker_container:
+        name: validator-backend-01
+        auto_remove: true
+        image: validator-backend-image
+        network_mode: host
+
+    - name: start frontend container
+      docker_container:             
+        name: validator-frontend-01  
+        auto_remove: true           
+        image: validator-frontend-image    
+        network_mode: host
