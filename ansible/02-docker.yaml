@@ -1,0 +1,56 @@
+- hosts: frontend:backend 
+  become: yes
+
+  vars:
+    basedir: /home/cloud/DevOps-Challenge/jumia_phone_validator
+    db_address: "192.168.0.128"
+    db_user: "jumia"
+    db_password: "jumia123"
+
+  pre-tasks:
+    - name: Install required packages npm, mvn and docker
+      apt:
+        name: "{{ items }}"
+        state: presented 
+      with_items:
+        - npm
+        - mvn
+        - docker
+    - name: Enable and start docker daemon
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+  tasks:
+    - name: Copy backend application.properties
+      template:
+        src: template/application.properties.j2
+        dest: "{{ basedir }}/validator-backend/src/main/resources/application.properties"
+
+    - name: Prepair validator-backend Image
+      shell: mvn clean install
+      args:
+        chdir: '{{ basedir }}/validator-backend'
+
+    - name: Build Docker image for validator-backend-image 
+      docker_image:
+        name: validator-backend-image
+        build:
+          path: '{{ basedir }}/validator-backend'
+
+    - name: Install packages for Validator-frontend based on package.json.
+      npm:
+        path: '{{ basedir }}/validator-frontend'
+
+    - name: Build npm modules
+      shell: npm run build
+      args:
+        chdir: '{{ basedir }}/validator-frontend'
+
+    - name:  Building Docker image for validator-frontend-image
+      docker_image:
+        name: validator-frontend-image
+        build:
+          path: '{{ basedir }}/validator-frontend'
+

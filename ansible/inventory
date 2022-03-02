@@ -1,0 +1,10 @@
+localhost
+
+[loadbalancer]
+192.168.0.5
+
+[database]
+192.168.0.6
+
+[microservice]
+192.168.0.7

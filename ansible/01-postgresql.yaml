@@ -1,0 +1,104 @@
+- hosts: database
+  become: yes
+  
+  vars:
+    db_user: "jumia"
+    db_password: "jumia123"
+    db_name: "jumia_phone_validator"
+
+  tasks:
+    - name: Install postgress sql
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - postgresql
+        - python3-psycopg2 
+
+    - name: Check if psql initialized
+      stat:
+        path: "/var/lib/pgsql/data/pg_hba.conf"
+      register: postgresql_data
+
+    - name: Postgres listen on wildcard
+      lineinfile:
+        path: /etc/postgresql/12/main/postgresql.conf
+        regexp: '^listen_addresses = '
+        insertafter: "^#listen_addresses = 'localhost'"
+        line: "listen_addresses = '*'"
+      notify: restart postgres
+
+    - name: Start and Enable Postgresql
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: "Create database"
+      postgresql_db:
+        name: "{{ db_name }}"
+        state: present
+      become: yes
+      become_user: postgres
+
+    - name: "Create db user"
+      postgresql_user:
+        name: "{{ db_user }}"
+        db: "{{ db_name }}"
+        state: present
+        password: "{{ db_password }}"
+      become: yes
+      become_user: postgres
+
+    - name: "Grant user access to db"
+      postgresql_privs:
+        type: database
+        db: "{{ db_name }}"
+        roles: "{{ db_user }}"
+        privs: all
+      become: yes
+      become_user: postgres
+
+    - name: "Alow db_user for md5 connection"
+      postgresql_pg_hba:
+        dest: "/etc/postgresql/12/main/pg_hba.conf"
+        contype: host
+        databases: all
+        source: all
+        method: md5
+        users: "{{ db_user }}"
+        create: true
+      become: yes
+      become_user: postgres
+      notify: restart postgres
+
+    - name: Check if file sample.sql exist
+      stat:
+        path: /var/lib/postgresql/sample.sql
+      register: f_status
+
+    - name: Get sql users file
+      get_url:
+        url: https://raw.githubusercontent.com/Jumia/DevOps-Challenge/main/jumia_phone_validator/database/sample.sql?token=GHSAT0AAAAAABP54BNYBPAJPCPFXIFZ5YIAYQ76WMA
+        dest: /var/lib/postgresql/sample.sql
+        mode: 0440
+      when: not f_status.stat.exists
+      become: yes
+      become_user: postgres
+
+    - name: Run sample sql for users
+      postgresql_query:
+        login_user: "{{ db_user }}"
+        login_password: "{{ db_password }}"
+        login_host: "127.0.0.1"
+        db: "{{ db_name }}"
+        path_to_script: /var/lib/postgresql/sample.sql
+      ignore_errors: yes
+      become: yes
+      become_user: postgres
+
+  handlers:
+    - name: restart postgres
+      service:
+        name: postgresql
+        state: restarted

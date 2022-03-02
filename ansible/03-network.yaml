@@ -1,0 +1,106 @@
+# Use hosts from inventory
+#- hosts: localhost
+#  
+#  tasks:
+#    - name: Test debug
+#      debug:
+#        msg: "Lets test this {{ item }}"
+#      with_items: "{{ groups['database'] }}"
+
+- hosts: database
+  become: yes
+
+  tasks:
+    - name: Save current iptables
+      shell: iptables-save > ~/iptables_$(date +"%d%m%y-%H%M%S")
+
+    - name: Allow related and established connections
+      iptables:
+        chain: INPUT
+        ctstate: ESTABLISHED,RELATED
+        jump: ACCEPT
+
+    - name: Allow postgresql port form application servers
+      iptables:
+        chain: INPUT
+        protocol: tcp
+        source: "{{ item }}"
+        destination_port: 5432
+        ctstate: NEW
+        jump: ACCEPT
+      with_items: "{{ groups['microservice'] }}"
+
+- hosts: microservice:loadbalancer
+  become: yes
+
+  tasks:
+    - name: Save current iptables
+      shell: iptables-save > ~/iptables_$(date +"%d%m%y-%H%M%S")
+
+    - name: Allow related and established connections
+      iptables:
+        chain: INPUT
+        ctstate: ESTABLISHED,RELATED
+        jump: ACCEPT
+
+    - name: Allow postgresql port form application servers
+      iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "{{ items }}"
+        ctstate: NEW
+        jump: ACCEPT
+      with_items:
+        - 80
+        - 443
+
+- hosts: all
+  become: yes
+
+  vars:
+    mysql_config: "/etc/ssh/sshd_config"
+
+  tasks:
+    - name: Allow SSH ports
+      iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: 1337
+        ctstate: NEW
+        jump: ACCEPT
+
+    - name: Block All income traffic
+      iptables:
+        chain: INPUT
+        jump: DROP
+
+    - name: Disable password auth
+      lineinfile:
+        path: "{{ mysql_config }}"
+        regexp: '^PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+      notify:
+        - restart sshd
+
+    - name: Modify SSH listening port 1337
+      lineinfile:
+        path: "{{ mysql_config }}"
+        regexp: '^Port'
+        line: 'Port 1337'
+      notify:
+        - restart sshd
+
+    - name: Disable root login
+      lineinfile:
+        path: "{{ mysql_config }}"
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+      notify:
+        - restart sshd
+  
+  handlers:
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted
+        daemon_reload: yes
